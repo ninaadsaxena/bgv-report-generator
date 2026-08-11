@@ -1,0 +1,1422 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="BGV Report Generator — Generate pixel-perfect PDF reports from Excel data." />
+  <title>BGV Report Generator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    /* =====================================================================
+       DESIGN TOKENS — DARK (default)
+       ===================================================================== */
+    :root {
+      --bg-base:        #0a0d14;
+      --bg-surface:     #111827;
+      --bg-card:        #1a2235;
+      --bg-card-hover:  #1f2a42;
+      --border:         rgba(99, 135, 210, 0.14);
+      --border-accent:  rgba(99, 135, 210, 0.38);
+
+      --accent:         #4f8ef7;
+      --accent-glow:    rgba(79, 142, 247, 0.22);
+      --accent-hover:   #6ba0ff;
+      --success:        #22c55e;
+      --success-dim:    rgba(34, 197, 94, 0.13);
+      --warning:        #f59e0b;
+      --warning-dim:    rgba(245, 158, 11, 0.13);
+      --danger:         #ef4444;
+      --danger-dim:     rgba(239, 68, 68, 0.13);
+
+      --text-primary:   #f1f5f9;
+      --text-secondary: #94a3b8;
+      --text-muted:     #475569;
+
+      --radius-sm:  8px;
+      --radius-md:  12px;
+      --radius-lg:  16px;
+
+      --shadow-card: 0 4px 24px rgba(0,0,0,0.38);
+      --transition:  all 0.2s ease;
+    }
+
+    /* =====================================================================
+       DESIGN TOKENS — LIGHT
+       ===================================================================== */
+    [data-theme="light"] {
+      --bg-base:        #f0f4f8;
+      --bg-surface:     #ffffff;
+      --bg-card:        #ffffff;
+      --bg-card-hover:  #f8fafc;
+      --border:         rgba(0, 0, 0, 0.08);
+      --border-accent:  rgba(79, 142, 247, 0.4);
+
+      --accent:         #2563eb;
+      --accent-glow:    rgba(37, 99, 235, 0.15);
+      --accent-hover:   #1d4ed8;
+      --success:        #16a34a;
+      --success-dim:    rgba(22, 163, 74, 0.1);
+      --warning:        #d97706;
+      --warning-dim:    rgba(217, 119, 6, 0.1);
+      --danger:         #dc2626;
+      --danger-dim:     rgba(220, 38, 38, 0.1);
+
+      --text-primary:   #0f172a;
+      --text-secondary: #475569;
+      --text-muted:     #94a3b8;
+
+      --shadow-card: 0 1px 6px rgba(0,0,0,0.07), 0 4px 20px rgba(0,0,0,0.05);
+    }
+
+    /* =====================================================================
+       RESET
+       ===================================================================== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg-base);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+      transition: background 0.3s ease, color 0.3s ease;
+    }
+
+    /* Animated background (dark only) */
+    [data-theme="dark"] body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse at 20% 20%, rgba(79, 142, 247, 0.055) 0%, transparent 60%),
+        radial-gradient(ellipse at 80% 80%, rgba(139, 92, 246, 0.04) 0%, transparent 60%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* =====================================================================
+       LAYOUT
+       ===================================================================== */
+    .app-layout {
+      display: flex;
+      min-height: 100vh;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* =====================================================================
+       SIDEBAR
+       ===================================================================== */
+    .sidebar {
+      width: 240px;
+      min-height: 100vh;
+      background: var(--bg-surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 24px 0;
+      position: fixed;
+      top: 0; left: 0; bottom: 0;
+      z-index: 100;
+      transition: background 0.3s ease, border-color 0.3s ease;
+    }
+
+    .sidebar-logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 20px 24px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 14px;
+    }
+
+    .logo-icon {
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, var(--accent), #8b5cf6);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 17px;
+      box-shadow: 0 4px 12px var(--accent-glow);
+      flex-shrink: 0;
+    }
+
+    .logo-text  { font-size: 14px; font-weight: 700; color: var(--text-primary); line-height: 1.3; }
+    .logo-sub   { font-size: 10px; color: var(--text-muted); letter-spacing: 0.05em; text-transform: uppercase; }
+
+    .nav-section-label {
+      font-size: 10px; font-weight: 600;
+      color: var(--text-muted);
+      letter-spacing: 0.08em; text-transform: uppercase;
+      padding: 0 20px;
+      margin: 8px 0 4px;
+    }
+
+    .nav-item {
+      display: flex; align-items: center; gap: 11px;
+      padding: 10px 20px;
+      color: var(--text-secondary); font-size: 13.5px; font-weight: 500;
+      cursor: pointer; transition: var(--transition);
+      position: relative;
+    }
+
+    .nav-item:hover { color: var(--text-primary); background: rgba(128,128,128,0.06); }
+
+    .nav-item.active {
+      color: var(--accent);
+      background: rgba(79,142,247,0.08);
+    }
+
+    [data-theme="light"] .nav-item.active { background: rgba(37,99,235,0.07); }
+
+    .nav-item.active::before {
+      content: '';
+      position: absolute; left: 0; top: 0; bottom: 0;
+      width: 3px; background: var(--accent); border-radius: 0 2px 2px 0;
+    }
+
+    .nav-icon { font-size: 16px; }
+
+    .sidebar-footer {
+      margin-top: auto;
+      padding: 16px 20px 0;
+      border-top: 1px solid var(--border);
+    }
+
+    .version-badge {
+      font-size: 11px; color: var(--text-muted);
+      display: flex; align-items: center; gap: 6px;
+    }
+
+    .status-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 6px var(--success);
+      animation: blink 2s infinite;
+    }
+
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    /* =====================================================================
+       THEME TOGGLE BUTTON
+       ===================================================================== */
+    .theme-toggle {
+      margin-top: 12px;
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: transparent;
+      cursor: pointer;
+      font-size: 12px; font-weight: 500;
+      color: var(--text-secondary);
+      font-family: inherit;
+      transition: var(--transition);
+      width: 100%;
+    }
+
+    .theme-toggle:hover { border-color: var(--border-accent); color: var(--text-primary); background: rgba(128,128,128,0.05); }
+
+    /* =====================================================================
+       MAIN
+       ===================================================================== */
+    .main-content {
+      flex: 1;
+      margin-left: 240px;
+      padding: 32px 40px;
+      min-height: 100vh;
+      min-width: 0;
+      max-width: calc(100vw - 240px);
+      overflow-x: hidden;
+    }
+
+    .page-header { margin-bottom: 28px; }
+
+    .page-title  { font-size: 24px; font-weight: 800; letter-spacing: -0.4px; }
+    .page-subtitle { font-size: 13.5px; color: var(--text-secondary); margin-top: 4px; }
+
+    .tab-content        { display: none; }
+    .tab-content.active { display: block; }
+
+    /* =====================================================================
+       CARDS
+       ===================================================================== */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      box-shadow: var(--shadow-card);
+      transition: var(--transition);
+    }
+
+    .card:hover { border-color: var(--border-accent); }
+
+    .card-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 20px;
+    }
+
+    .card-title {
+      font-size: 15px; font-weight: 700;
+      display: flex; align-items: center; gap: 10px;
+    }
+
+    .card-icon {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: rgba(79,142,247,0.1);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px;
+    }
+
+    /* =====================================================================
+       STEPPER
+       ===================================================================== */
+    .stepper {
+      display: flex; align-items: center;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 18px 24px;
+      margin-bottom: 24px;
+      gap: 4px;
+    }
+
+    .step { display: flex; align-items: center; gap: 10px; flex: 1; position: relative; }
+
+    .step:not(:last-child)::after {
+      content: '';
+      position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+      width: 36px; height: 1px; background: var(--border);
+    }
+
+    .step-num {
+      width: 28px; height: 28px; border-radius: 50%;
+      border: 2px solid var(--border); background: var(--bg-surface);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700; color: var(--text-muted);
+      flex-shrink: 0; transition: var(--transition);
+    }
+
+    .step.active .step-num { border-color: var(--accent); color: var(--accent); background: rgba(79,142,247,0.08); box-shadow: 0 0 10px var(--accent-glow); }
+    .step.done   .step-num { border-color: var(--success); background: var(--success); color: #fff; }
+
+    .step-label { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+    .step.active .step-label { color: var(--text-primary); }
+    .step.done   .step-label { color: var(--success); }
+    .step-sub    { font-size: 10px; color: var(--text-muted); margin-top: 1px; }
+
+    /* =====================================================================
+       DROPZONE
+       ===================================================================== */
+    .dropzone {
+      border: 2px dashed var(--border-accent);
+      border-radius: var(--radius-md);
+      padding: 44px 20px;
+      text-align: center; cursor: pointer;
+      transition: var(--transition); position: relative;
+      background: rgba(79,142,247,0.02);
+    }
+
+    .dropzone:hover, .dropzone.dragover {
+      border-color: var(--accent);
+      background: rgba(79,142,247,0.06);
+      transform: translateY(-1px);
+    }
+
+    .dropzone input[type="file"] { position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%; }
+    .dropzone-icon  { font-size: 34px; margin-bottom: 12px; }
+    .dropzone-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+    .dropzone-sub   { font-size: 12px; color: var(--text-muted); }
+
+    .dropzone.has-file { border-color: var(--success); background: var(--success-dim); }
+
+    /* =====================================================================
+       BUTTONS
+       ===================================================================== */
+    .btn {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 10px 20px; border-radius: var(--radius-sm);
+      font-size: 13.5px; font-weight: 600; cursor: pointer;
+      border: none; transition: var(--transition); font-family: inherit;
+      text-decoration: none; white-space: nowrap;
+    }
+
+    .btn:disabled { opacity: 0.42; cursor: not-allowed; transform: none !important; }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), #6366f1);
+      color: #fff; box-shadow: 0 4px 14px var(--accent-glow);
+    }
+    .btn-primary:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); }
+
+    .btn-success {
+      background: linear-gradient(135deg, var(--success), #16a34a);
+      color: #fff; box-shadow: 0 4px 12px rgba(34,197,94,0.22);
+    }
+    .btn-success:hover:not(:disabled) { filter: brightness(1.08); transform: translateY(-1px); }
+
+    .btn-secondary {
+      background: rgba(128,128,128,0.08);
+      color: var(--text-primary); border: 1px solid var(--border);
+    }
+    .btn-secondary:hover:not(:disabled) { background: rgba(128,128,128,0.14); border-color: var(--border-accent); }
+
+    .btn-danger { background: var(--danger-dim); color: var(--danger); border: 1px solid rgba(239,68,68,0.18); }
+    .btn-danger:hover:not(:disabled) { background: rgba(239,68,68,0.18); }
+
+    .btn-sm  { padding: 6px 14px; font-size: 12px; }
+    .btn-lg  { padding: 13px 28px; font-size: 15px; }
+    .btn-icon { padding: 8px; border-radius: 8px; }
+
+    /* =====================================================================
+       FORM ELEMENTS
+       ===================================================================== */
+    .form-group { margin-bottom: 16px; }
+
+    label {
+      display: block; font-size: 11px; font-weight: 600;
+      color: var(--text-muted); margin-bottom: 6px;
+      text-transform: uppercase; letter-spacing: 0.04em;
+    }
+
+    select {
+      width: 100%; padding: 10px 14px;
+      background: var(--bg-surface); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); color: var(--text-primary);
+      font-size: 13.5px; font-family: inherit; transition: var(--transition); outline: none;
+    }
+
+    select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+    select option { background: var(--bg-surface); }
+
+    /* =====================================================================
+       PROGRESS
+       ===================================================================== */
+    .progress-wrap { margin: 16px 0; }
+    .progress-info { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 12px; color: var(--text-secondary); }
+    .progress-bar-bg { height: 8px; background: rgba(128,128,128,0.12); border-radius: 99px; overflow: hidden; }
+    .progress-bar-fill {
+      height: 100%; background: linear-gradient(90deg, var(--accent), #8b5cf6);
+      border-radius: 99px; transition: width 0.4s ease;
+      box-shadow: 0 0 10px var(--accent-glow);
+    }
+
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2px solid rgba(128,128,128,0.2);
+      border-top-color: var(--accent);
+      border-radius: 50%; animation: spin 0.7s linear infinite; flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* =====================================================================
+       TABLE
+       ===================================================================== */
+    .table-wrap { overflow-x: auto; border-radius: var(--radius-md); border: 1px solid var(--border); }
+
+    table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+
+    th {
+      background: rgba(128,128,128,0.05); color: var(--text-muted);
+      font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em;
+      padding: 9px 14px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap;
+    }
+
+    td {
+      padding: 9px 14px; border-bottom: 1px solid rgba(128,128,128,0.06);
+      color: var(--text-secondary); max-width: 200px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    tr:last-child td { border-bottom: none; }
+    tr:hover td     { background: rgba(128,128,128,0.03); color: var(--text-primary); }
+
+    /* =====================================================================
+       BADGES
+       ===================================================================== */
+    .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+    .badge-success { background: var(--success-dim); color: var(--success); }
+    .badge-warning { background: var(--warning-dim); color: var(--warning); }
+    .badge-danger  { background: var(--danger-dim);  color: var(--danger); }
+    .badge-info    { background: rgba(79,142,247,0.1); color: var(--accent); }
+
+    /* =====================================================================
+       TOASTS
+       ===================================================================== */
+    #toast-container {
+      position: fixed; top: 24px; right: 24px; z-index: 9999;
+      display: flex; flex-direction: column; gap: 10px; pointer-events: none;
+    }
+
+    .toast {
+      background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md);
+      padding: 13px 16px; min-width: 280px; max-width: 360px;
+      box-shadow: var(--shadow-card); display: flex; align-items: flex-start; gap: 11px;
+      animation: toastIn 0.3s ease; pointer-events: all;
+    }
+
+    .toast.success { border-color: rgba(34,197,94,0.28); }
+    .toast.error   { border-color: rgba(239,68,68,0.28); }
+    .toast.warning { border-color: rgba(245,158,11,0.28); }
+
+    .toast-icon  { font-size: 17px; flex-shrink: 0; margin-top: 1px; }
+    .toast-title { font-size: 13px; font-weight: 600; }
+    .toast-msg   { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+
+    @keyframes toastIn  { from { opacity:0; transform:translateX(24px); } to { opacity:1; transform:translateX(0); } }
+    @keyframes toastOut { from { opacity:1; transform:translateX(0); } to { opacity:0; transform:translateX(24px); } }
+
+    /* =====================================================================
+       HISTORY / PDF LIST ITEMS
+       ===================================================================== */
+    .list-item {
+      background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md);
+      padding: 14px 18px; display: flex; align-items: center; gap: 14px;
+      transition: var(--transition); margin-bottom: 8px;
+    }
+
+    .list-item:hover { border-color: var(--border-accent); }
+
+    .list-icon {
+      width: 38px; height: 38px; border-radius: 10px;
+      background: rgba(79,142,247,0.1);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 17px; flex-shrink: 0;
+    }
+
+    .list-info { flex: 1; min-width: 0; }
+
+    .list-name {
+      font-size: 13.5px; font-weight: 600;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      margin-bottom: 2px;
+    }
+
+    .list-meta { font-size: 11px; color: var(--text-muted); display: flex; gap: 10px; flex-wrap: wrap; }
+
+    .list-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+    /* History group */
+    .history-group {
+      background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg);
+      margin-bottom: 16px; overflow: hidden;
+    }
+
+    .history-group-header {
+      padding: 14px 20px; display: flex; align-items: center; gap: 14px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(128,128,128,0.03);
+      cursor: pointer; user-select: none;
+    }
+
+    .history-group-header:hover { background: rgba(128,128,128,0.06); }
+
+    .history-group-info { flex: 1; min-width: 0; }
+    .history-group-name { font-size: 14px; font-weight: 600; }
+    .history-group-meta { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; display: flex; gap: 12px; }
+
+    .history-pdf-list { padding: 8px 16px 12px; }
+
+    .history-pdf-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 10px; border-radius: var(--radius-sm);
+      transition: var(--transition);
+    }
+
+    .history-pdf-row:hover { background: rgba(128,128,128,0.05); }
+
+    .history-pdf-icon { font-size: 20px; flex-shrink: 0; }
+    .history-pdf-info { flex: 1; min-width: 0; }
+    .history-pdf-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .history-pdf-sub  { font-size: 11px; color: var(--text-muted); }
+
+    /* =====================================================================
+       TEMPLATE ITEMS
+       ===================================================================== */
+    .template-item {
+      display: flex; align-items: center; gap: 14px;
+      padding: 14px 16px; background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius-md); margin-bottom: 8px; transition: var(--transition);
+    }
+
+    .template-item:hover { border-color: var(--border-accent); }
+    .template-item.active-tpl { border-color: var(--accent); background: rgba(79,142,247,0.04); }
+
+    .template-icon { width: 36px; height: 36px; border-radius: 8px; background: rgba(79,142,247,0.1); display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+    .template-name { font-size: 13.5px; font-weight: 600; }
+    .template-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+    /* =====================================================================
+       RESULT STATS
+       ===================================================================== */
+    .result-stats { display: flex; gap: 24px; margin-bottom: 16px; }
+    .stat-val { font-size: 30px; font-weight: 800; }
+    .stat-lbl { font-size: 10.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+
+    /* Log box */
+    .log-box {
+      background: rgba(0,0,0,0.18); border-radius: var(--radius-sm);
+      padding: 12px 14px; font-size: 12px; color: var(--text-secondary);
+      font-family: 'Consolas', monospace; max-height: 140px; overflow-y: auto; line-height: 1.6;
+    }
+    [data-theme="light"] .log-box { background: rgba(0,0,0,0.04); }
+
+    .log-ok    { color: var(--success); }
+    .log-error { color: var(--danger); }
+
+    /* =====================================================================
+       UTILS
+       ===================================================================== */
+    .hidden  { display: none !important; }
+    .divider { height: 1px; background: var(--border); margin: 20px 0; }
+    .grid-2  { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .flex    { display: flex; }
+    .gap-8   { gap: 8px; }
+    .mt-12   { margin-top: 12px; }
+    .mt-16   { margin-top: 16px; }
+    .mt-20   { margin-top: 20px; }
+    .text-sm { font-size: 12.5px; }
+    .text-muted   { color: var(--text-muted); }
+    .text-success { color: var(--success); }
+    .text-danger  { color: var(--danger); }
+    .text-accent  { color: var(--accent); }
+    .fw-600  { font-weight: 600; }
+
+    .empty-state { text-align: center; padding: 48px 24px; color: var(--text-muted); }
+    .empty-state-icon { font-size: 38px; margin-bottom: 12px; opacity: 0.45; }
+    .empty-state-title { font-size: 15px; font-weight: 600; color: var(--text-secondary); }
+    .empty-state-sub   { font-size: 13px; margin-top: 4px; }
+
+    @media (max-width: 900px) {
+      .sidebar { display: none; }
+      .main-content { margin-left: 0; padding: 20px; max-width: 100vw; }
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.18); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.3); }
+  </style>
+</head>
+<body>
+
+<div id="toast-container"></div>
+
+<div class="app-layout">
+
+  <!-- ===================================================================
+       SIDEBAR
+       =================================================================== -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">📄</div>
+      <div>
+        <div class="logo-text">BGV Reports</div>
+        <div class="logo-sub">Report Generator</div>
+      </div>
+    </div>
+
+    <span class="nav-section-label">Workspace</span>
+    <div class="nav-item active" id="nav-generate" onclick="switchTab('generate')">
+      <span class="nav-icon">⚡</span> Generate Reports
+    </div>
+    <div class="nav-item" id="nav-history" onclick="switchTab('history')">
+      <span class="nav-icon">🕓</span> History
+    </div>
+
+    <span class="nav-section-label" style="margin-top:14px;">Management</span>
+    <div class="nav-item" id="nav-templates" onclick="switchTab('templates')">
+      <span class="nav-icon">📋</span> Templates
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="version-badge">
+        <div class="status-dot"></div>
+        Server running · v2.1
+      </div>
+      <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn">
+        <span id="theme-icon">☀️</span>
+        <span id="theme-label">Light Mode</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ===================================================================
+       MAIN
+       =================================================================== -->
+  <main class="main-content">
+
+    <!-- =================================================================
+         GENERATE TAB
+         ================================================================= -->
+    <div class="tab-content active" id="tab-generate">
+      <div class="page-header">
+        <h1 class="page-title">Generate Reports</h1>
+        <p class="page-subtitle">Upload your Excel data, pick a template, and download pixel-perfect PDFs.</p>
+      </div>
+
+      <!-- Stepper -->
+      <div class="stepper">
+        <div class="step active" id="step-1">
+          <div class="step-num" id="step-num-1">1</div>
+          <div>
+            <div class="step-label">Upload Excel</div>
+            <div class="step-sub">Input data file</div>
+          </div>
+        </div>
+        <div class="step" id="step-2">
+          <div class="step-num" id="step-num-2">2</div>
+          <div>
+            <div class="step-label">Configure</div>
+            <div class="step-sub">Template &amp; options</div>
+          </div>
+        </div>
+        <div class="step" id="step-3">
+          <div class="step-num" id="step-num-3">3</div>
+          <div>
+            <div class="step-label">Preview</div>
+            <div class="step-sub">Review data</div>
+          </div>
+        </div>
+        <div class="step" id="step-4">
+          <div class="step-num" id="step-num-4">4</div>
+          <div>
+            <div class="step-label">Generate</div>
+            <div class="step-sub">Create PDFs</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 1 -->
+      <div id="step-panel-1">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><div class="card-icon">📊</div> Upload Excel File</div>
+          </div>
+          <div class="dropzone" id="excel-dz">
+            <input type="file" id="excel-input" accept=".xlsx,.xls" style="display:none" onchange="handleExcelUpload(this.files[0])" />
+            <div class="dropzone-icon" id="dz-icon">📂</div>
+            <div class="dropzone-title" id="dz-title">Drop your Excel file here</div>
+            <div class="dropzone-sub" id="dz-sub">or click to browse · .xlsx &amp; .xls supported</div>
+          </div>
+          <div id="excel-uploading" class="hidden mt-16 flex gap-8" style="align-items:center;">
+            <div class="spinner"></div>
+            <span class="text-sm text-muted">Uploading and parsing…</span>
+          </div>
+          <div class="mt-16 flex gap-8" style="justify-content:flex-end;">
+            <button class="btn btn-primary" id="btn-next-1" onclick="goToStep(2)" disabled>Continue →</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2 -->
+      <div id="step-panel-2" class="hidden">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><div class="card-icon">⚙️</div> Configure</div>
+          </div>
+          <div class="grid-2">
+            <div class="form-group">
+              <label>Worksheet</label>
+              <select id="sheet-select" onchange="onSheetChange(this.value)">
+                <option value="">— Select sheet —</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Template</label>
+              <select id="template-select">
+                <option value="">— Default template —</option>
+              </select>
+            </div>
+          </div>
+          <div id="sheet-info" class="hidden text-sm text-muted mt-12"></div>
+          <div class="divider"></div>
+          <div class="flex gap-8" style="justify-content:flex-end;">
+            <button class="btn btn-secondary" onclick="goToStep(1)">← Back</button>
+            <button class="btn btn-primary" onclick="goToStep(3)">Preview Data →</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3 -->
+      <div id="step-panel-3" class="hidden">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><div class="card-icon">👁️</div> Data Preview</div>
+            <span id="preview-count" class="badge badge-info"></span>
+          </div>
+          <div class="table-wrap" id="preview-table"></div>
+          <div class="divider"></div>
+          <div class="flex gap-8" style="justify-content:flex-end;">
+            <button class="btn btn-secondary" onclick="goToStep(2)">← Back</button>
+            <button class="btn btn-success btn-lg" onclick="startGeneration()">⚡ Generate PDFs</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 4 -->
+      <div id="step-panel-4" class="hidden">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><div class="card-icon">⚡</div> Generating Reports</div>
+            <span id="gen-badge" class="badge badge-info">Running</span>
+          </div>
+
+          <div class="progress-wrap">
+            <div class="progress-info">
+              <span id="gen-label">Initializing…</span>
+              <span id="gen-pct">0%</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill" id="gen-bar" style="width:0%"></div>
+            </div>
+          </div>
+
+          <div class="log-box" id="gen-log"><span class="text-muted">Starting…</span></div>
+
+          <!-- Results -->
+          <div id="gen-results" class="hidden mt-20">
+            <div class="result-stats" id="result-stats"></div>
+
+            <div id="gen-pdf-list" class="mt-16"></div>
+
+            <div class="flex gap-8 mt-16">
+              <button class="btn btn-success" id="btn-dl-all" onclick="downloadAll()">⬇ Download All PDFs</button>
+              <button class="btn btn-secondary" onclick="resetWorkflow()">+ New Generation</button>
+            </div>
+
+            <div id="gen-errors-section" class="hidden mt-16">
+              <div class="divider"></div>
+              <div style="font-size:13px;font-weight:600;color:var(--danger);margin-bottom:8px;">⚠ Errors</div>
+              <div class="log-box" id="gen-errors-log"></div>
+            </div>
+          </div>
+
+          <div class="flex gap-8 mt-16" id="gen-back">
+            <button class="btn btn-secondary" onclick="goToStep(3)">← Back</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- =================================================================
+         HISTORY TAB
+         ================================================================= -->
+    <div class="tab-content" id="tab-history">
+      <div class="page-header flex" style="justify-content:space-between;align-items:flex-start;">
+        <div>
+          <h1 class="page-title">History</h1>
+          <p class="page-subtitle">Past generation batches — click a batch to see and download individual PDFs.</p>
+        </div>
+        <button class="btn btn-secondary" onclick="loadHistory()">↻ Refresh</button>
+      </div>
+      <div id="history-list"></div>
+    </div>
+
+    <!-- =================================================================
+         TEMPLATES TAB
+         ================================================================= -->
+    <div class="tab-content" id="tab-templates">
+      <div class="page-header flex" style="justify-content:space-between;align-items:flex-start;">
+        <div>
+          <h1 class="page-title">Templates</h1>
+          <p class="page-subtitle">Manage your Word (.docx) templates. Select one as active when generating reports.</p>
+        </div>
+        <button class="btn btn-primary" onclick="document.getElementById('tmpl-upload-input').click()">
+          + Upload Template
+        </button>
+      </div>
+      <input type="file" id="tmpl-upload-input" accept=".docx" style="display:none" onchange="uploadTemplate(this.files[0])" />
+      <div id="templates-list"></div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+/* =========================================================================
+   STATE
+   ========================================================================= */
+const state = {
+  currentTab:    'generate',
+  uploadData:    null,
+  selectedSheet: null,
+  activeTemplate: null,   // currently selected template name
+  currentJobId:  null,
+  pollTimer:     null,
+};
+
+/* =========================================================================
+   THEME
+   ========================================================================= */
+function applyTheme(mode) {
+  document.documentElement.setAttribute('data-theme', mode);
+  localStorage.setItem('bgv-theme', mode);
+  const isDark = mode === 'dark';
+  document.getElementById('theme-icon').textContent  = isDark ? '☀️' : '🌙';
+  document.getElementById('theme-label').textContent = isDark ? 'Light Mode' : 'Dark Mode';
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme');
+  applyTheme(current === 'dark' ? 'light' : 'dark');
+}
+
+// Init theme from storage
+applyTheme(localStorage.getItem('bgv-theme') || 'dark');
+
+/* =========================================================================
+   NAVIGATION
+   ========================================================================= */
+function switchTab(tab) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  document.getElementById(`tab-${tab}`).classList.add('active');
+  document.getElementById(`nav-${tab}`).classList.add('active');
+  state.currentTab = tab;
+  if (tab === 'history')   loadHistory();
+  if (tab === 'templates') loadTemplates();
+}
+
+/* =========================================================================
+   STEPPER
+   ========================================================================= */
+function goToStep(n) {
+  if (n === 2 && !state.uploadData) { showToast('Upload an Excel file first.', 'warning'); return; }
+  if (n === 3) renderPreview();
+
+  for (let i = 1; i <= 4; i++) {
+    document.getElementById(`step-panel-${i}`).classList.add('hidden');
+    const s = document.getElementById(`step-${i}`);
+    s.classList.remove('active', 'done');
+    if (i < n) { s.classList.add('done'); document.getElementById(`step-num-${i}`).textContent = '✓'; }
+    else        document.getElementById(`step-num-${i}`).textContent = i;
+  }
+  document.getElementById(`step-panel-${n}`).classList.remove('hidden');
+  document.getElementById(`step-${n}`).classList.add('active');
+}
+
+/* =========================================================================
+   DRAG & DROP
+   ========================================================================= */
+const dz = document.getElementById('excel-dz');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('dragover');
+  const f = e.dataTransfer.files[0];
+  if (f) handleExcelUpload(f);
+});
+dz.addEventListener('click', () => document.getElementById('excel-input').click());
+
+/* =========================================================================
+   EXCEL UPLOAD
+   ========================================================================= */
+async function handleExcelUpload(file) {
+  if (!file) return;
+  if (!file.name.match(/\.(xlsx|xls)$/i)) { showToast('Only .xlsx or .xls files are accepted', 'error'); return; }
+
+  dz.classList.add('has-file');
+  document.getElementById('dz-icon').textContent  = '✅';
+  document.getElementById('dz-title').textContent = file.name;
+  document.getElementById('dz-sub').textContent   = `${(file.size/1024).toFixed(1)} KB · Click to change`;
+  document.getElementById('excel-uploading').classList.remove('hidden');
+  document.getElementById('btn-next-1').disabled = true;
+
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const res  = await fetch('/api/upload-excel', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Upload failed');
+    state.uploadData = data;
+
+    // Populate sheet selector
+    const sel = document.getElementById('sheet-select');
+    sel.innerHTML = '';
+    data.sheets.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s; opt.textContent = s;
+      sel.appendChild(opt);
+    });
+    state.selectedSheet = data.sheets[0] || null;
+    onSheetChange(state.selectedSheet);
+
+    document.getElementById('excel-uploading').classList.add('hidden');
+    document.getElementById('btn-next-1').disabled = false;
+    showToast(`"${file.name}" parsed — ${data.sheets.length} sheet(s)`, 'success');
+  } catch(e) {
+    document.getElementById('excel-uploading').classList.add('hidden');
+    dz.classList.remove('has-file');
+    document.getElementById('dz-icon').textContent  = '📂';
+    document.getElementById('dz-title').textContent = 'Drop your Excel file here';
+    document.getElementById('dz-sub').textContent   = 'or click to browse · .xlsx & .xls supported';
+    showToast(`Upload failed: ${e.message}`, 'error');
+  }
+}
+
+function onSheetChange(name) {
+  state.selectedSheet = name;
+  const d = state.uploadData?.data?.[name];
+  const info = document.getElementById('sheet-info');
+  if (d) {
+    info.textContent = `📊 ${d.row_count} data row(s) found in this sheet`;
+    info.classList.remove('hidden');
+  } else {
+    info.classList.add('hidden');
+  }
+}
+
+/* =========================================================================
+   TEMPLATE DROPDOWN (in Step 2)
+   ========================================================================= */
+async function populateTemplateDropdown() {
+  try {
+    const res  = await fetch('/api/templates');
+    const data = await res.json();
+    const sel  = document.getElementById('template-select');
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">— Default template —</option>';
+    data.templates.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.name; opt.textContent = t.name;
+      sel.appendChild(opt);
+    });
+    if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
+    if (state.activeTemplate) sel.value = state.activeTemplate;
+  } catch(e) {}
+}
+
+document.getElementById('template-select').addEventListener('change', function() {
+  state.activeTemplate = this.value || null;
+});
+
+/* =========================================================================
+   PREVIEW
+   ========================================================================= */
+function renderPreview() {
+  const sheet = state.selectedSheet || state.uploadData?.sheets?.[0];
+  const d = state.uploadData?.data?.[sheet];
+  const wrap = document.getElementById('preview-table');
+
+  if (!d || !d.rows.length) {
+    wrap.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-title">No data rows in this sheet</div></div>`;
+    document.getElementById('preview-count').textContent = '0 rows';
+    return;
+  }
+
+  const { headers, rows, row_count } = d;
+  document.getElementById('preview-count').textContent = `${row_count} row${row_count !== 1 ? 's' : ''}`;
+
+  let html = `<table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>`;
+  rows.forEach(r => {
+    html += `<tr>${headers.map(h => `<td title="${esc(r[h]||'')}">${esc(r[h]||'—')}</td>`).join('')}</tr>`;
+  });
+  html += '</tbody></table>';
+  if (row_count > 50) html += `<div style="text-align:center;padding:10px;font-size:12px;color:var(--text-muted)">Showing first 50 of ${row_count} rows</div>`;
+  wrap.innerHTML = html;
+}
+
+/* =========================================================================
+   GENERATION
+   ========================================================================= */
+async function startGeneration() {
+  if (!state.uploadData) { showToast('No file uploaded', 'error'); return; }
+
+  // Transition to step 4
+  for (let i = 1; i <= 3; i++) {
+    document.getElementById(`step-panel-${i}`).classList.add('hidden');
+    const s = document.getElementById(`step-${i}`);
+    s.classList.remove('active'); s.classList.add('done');
+    document.getElementById(`step-num-${i}`).textContent = '✓';
+  }
+  document.getElementById('step-panel-4').classList.remove('hidden');
+  document.getElementById('step-4').classList.add('active');
+
+  // Reset UI
+  document.getElementById('gen-results').classList.add('hidden');
+  document.getElementById('gen-back').classList.remove('hidden');
+  document.getElementById('gen-badge').className = 'badge badge-info';
+  document.getElementById('gen-badge').textContent = 'Running';
+  document.getElementById('gen-log').innerHTML = '<span class="text-muted">Starting…</span>';
+  setProgress(0, 0, 'Sending request…');
+
+  try {
+    const res  = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        upload_id:     state.uploadData.upload_id,
+        sheet_name:    state.selectedSheet || null,
+        template_name: state.activeTemplate || null,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to start job');
+    state.currentJobId = data.job_id;
+    pollStatus();
+  } catch(e) {
+    setProgress(0, 1, 'Error starting job');
+    document.getElementById('gen-log').innerHTML = `<span class="log-error">❌ ${esc(e.message)}</span>`;
+    document.getElementById('gen-badge').className = 'badge badge-danger';
+    document.getElementById('gen-badge').textContent = 'Error';
+  }
+}
+
+async function pollStatus() {
+  if (!state.currentJobId) return;
+  clearTimeout(state.pollTimer);
+  try {
+    const res  = await fetch(`/api/status/${state.currentJobId}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+
+    const pct = data.total > 0 ? Math.round((data.progress / data.total) * 100) : 5;
+    setProgress(data.progress, data.total, data.messages?.at(-1) || 'Processing…');
+
+    if (data.messages?.length) {
+      document.getElementById('gen-log').innerHTML =
+        data.messages.slice(-12).map(m => `<div>${esc(m)}</div>`).join('');
+    }
+
+    if (data.status === 'done' || data.status === 'error') {
+      onComplete(data);
+    } else {
+      state.pollTimer = setTimeout(pollStatus, 800);
+    }
+  } catch(e) {
+    state.pollTimer = setTimeout(pollStatus, 2000);
+  }
+}
+
+function onComplete(data) {
+  const meta = data.report_meta || { generated_count: 0, error_count: 0, errors: [] };
+  const pdfs = data.pdfs || [];
+  const ok   = data.status === 'done';
+
+  const badge = document.getElementById('gen-badge');
+  badge.className = ok ? 'badge badge-success' : 'badge badge-danger';
+  badge.textContent = ok ? 'Complete' : 'Failed';
+  setProgress(data.total || 1, data.total || 1, ok ? 'All done!' : 'Completed with errors');
+
+  document.getElementById('gen-results').classList.remove('hidden');
+  document.getElementById('gen-back').classList.add('hidden');
+
+  // Stats
+  document.getElementById('result-stats').innerHTML = `
+    <div><div class="stat-val text-success">${meta.generated_count}</div><div class="stat-lbl">PDFs Generated</div></div>
+    <div><div class="stat-val ${meta.error_count > 0 ? 'text-danger' : 'text-muted'}">${meta.error_count}</div><div class="stat-lbl">Errors</div></div>
+    <div><div class="stat-val text-muted">${meta.generated_count + meta.error_count}</div><div class="stat-lbl">Total Rows</div></div>`;
+
+  // Per-PDF list with proper download links
+  const listEl = document.getElementById('gen-pdf-list');
+  if (pdfs.length) {
+    let html = `<div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.05em;">Generated Files</div>`;
+    pdfs.forEach(p => {
+      const dlUrl = `/api/download/${state.currentJobId}/${encodeURIComponent(p.filename)}`;
+      html += `
+        <div class="list-item">
+          <div class="list-icon">📄</div>
+          <div class="list-info">
+            <div class="list-name">${esc(p.filename)}</div>
+            <div class="list-meta">
+              <span>${esc(p.applicant)}</span>
+              <span>${esc(p.check_name)} Check</span>
+              ${p.warnings?.length ? `<span class="text-warning">⚠ ${p.warnings.length} warning(s)</span>` : ''}
+            </div>
+          </div>
+          <div class="list-actions">
+            <button class="btn btn-secondary btn-sm" onclick="downloadFile('${dlUrl}','${esc(p.filename)}')">⬇ PDF</button>
+          </div>
+        </div>`;
+    });
+    listEl.innerHTML = html;
+  } else {
+    listEl.innerHTML = '';
+  }
+
+  if (meta.errors?.length) {
+    document.getElementById('gen-errors-section').classList.remove('hidden');
+    document.getElementById('gen-errors-log').innerHTML =
+      meta.errors.map(e => `<div class="log-error">❌ ${esc(e)}</div>`).join('');
+  }
+
+  document.getElementById('btn-dl-all').style.display = pdfs.length ? '' : 'none';
+  if (meta.generated_count > 0) showToast(`Generated ${meta.generated_count} PDF(s)`, 'success');
+  if (meta.error_count  > 0) showToast(`${meta.error_count} error(s) — check log`, 'warning');
+}
+
+function setProgress(done, total, label) {
+  const pct = total > 0 ? Math.min(100, Math.round(done / total * 100)) : 0;
+  document.getElementById('gen-bar').style.width  = pct + '%';
+  document.getElementById('gen-pct').textContent  = pct + '%';
+  document.getElementById('gen-label').textContent = label;
+}
+
+function downloadAll() {
+  if (!state.currentJobId) return;
+  // Use fetch+blob so browser gets a proper filename from the response
+  fetch(`/api/download/${state.currentJobId}`)
+    .then(r => {
+      // Get filename from Content-Disposition header if available
+      const cd = r.headers.get('Content-Disposition') || '';
+      const match = cd.match(/filename="?([^"]+)"?/);
+      const fname = match ? match[1] : `BGV_Reports.zip`;
+      return r.blob().then(b => ({ blob: b, fname }));
+    })
+    .then(({ blob, fname }) => triggerDownload(blob, fname))
+    .catch(e => showToast(`Download error: ${e.message}`, 'error'));
+}
+
+function downloadFile(url, filename) {
+  fetch(url)
+    .then(r => r.blob())
+    .then(blob => triggerDownload(blob, filename))
+    .catch(e => showToast(`Download error: ${e.message}`, 'error'));
+}
+
+function triggerDownload(blob, filename) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+function resetWorkflow() {
+  state.uploadData = null; state.selectedSheet = null; state.currentJobId = null;
+  clearTimeout(state.pollTimer);
+  dz.classList.remove('has-file');
+  document.getElementById('dz-icon').textContent  = '📂';
+  document.getElementById('dz-title').textContent = 'Drop your Excel file here';
+  document.getElementById('dz-sub').textContent   = 'or click to browse · .xlsx & .xls supported';
+  document.getElementById('excel-input').value    = '';
+  document.getElementById('gen-errors-section').classList.add('hidden');
+  document.getElementById('sheet-info').classList.add('hidden');
+  for (let i = 1; i <= 4; i++) {
+    document.getElementById(`step-panel-${i}`).classList.add('hidden');
+    document.getElementById(`step-${i}`).classList.remove('active','done');
+    document.getElementById(`step-num-${i}`).textContent = i;
+  }
+  document.getElementById('step-panel-1').classList.remove('hidden');
+  document.getElementById('step-1').classList.add('active');
+  document.getElementById('btn-next-1').disabled = true;
+}
+
+/* =========================================================================
+   HISTORY
+   ========================================================================= */
+async function loadHistory() {
+  const el = document.getElementById('history-list');
+  el.innerHTML = `<div class="empty-state"><div class="spinner" style="margin:0 auto 14px;"></div><div class="empty-state-title">Loading…</div></div>`;
+
+  try {
+    const res  = await fetch('/api/history');
+    const data = await res.json();
+    const list = data.history || [];
+
+    if (!list.length) {
+      el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🕓</div><div class="empty-state-title">No history yet</div><div class="empty-state-sub">Generated reports will appear here.</div></div>`;
+      return;
+    }
+
+    el.innerHTML = list.map(entry => {
+      const date    = new Date(entry.started_at).toLocaleString();
+      const pdfCount = entry.pdfs?.length || 0;
+
+      let pdfsHtml = '';
+      if (entry.pdfs?.length) {
+        pdfsHtml = entry.pdfs.map(p => `
+          <div class="history-pdf-row">
+            <div class="history-pdf-icon">📄</div>
+            <div class="history-pdf-info">
+              <div class="history-pdf-name">${esc(p.filename)}</div>
+              <div class="history-pdf-sub">${esc(p.applicant)} · ${esc(p.check_name)} Check</div>
+            </div>
+            <button class="btn btn-secondary btn-sm"
+              onclick="downloadFile('/api/download/${entry.job_id}/${encodeURIComponent(p.filename)}','${esc(p.filename)}')">
+              ⬇ PDF
+            </button>
+          </div>`).join('');
+      }
+
+      return `
+        <div class="history-group" id="hgroup-${entry.job_id}">
+          <div class="history-group-header" onclick="toggleHistoryGroup('${entry.job_id}')">
+            <div class="list-icon">📦</div>
+            <div class="history-group-info">
+              <div class="history-group-name">${esc(entry.original_filename || 'Unknown file')}</div>
+              <div class="history-group-meta">
+                <span>📅 ${date}</span>
+                <span class="text-success">✓ ${pdfCount} PDF${pdfCount !== 1 ? 's' : ''}</span>
+                ${entry.error_count > 0 ? `<span class="text-danger">✗ ${entry.error_count} error(s)</span>` : ''}
+              </div>
+            </div>
+            <div class="flex gap-8" onclick="event.stopPropagation()">
+              ${pdfCount > 1 ? `<button class="btn btn-secondary btn-sm" onclick="downloadFile('/api/download/${entry.job_id}','BGV_Reports.zip')">⬇ All</button>` : ''}
+              <button class="btn btn-danger btn-sm" onclick="deleteHistory('${entry.job_id}')">🗑</button>
+            </div>
+            <span id="chevron-${entry.job_id}" style="color:var(--text-muted);margin-left:6px;flex-shrink:0;">▼</span>
+          </div>
+          <div class="history-pdf-list" id="hlist-${entry.job_id}" style="display:none">
+            ${pdfsHtml || '<div class="text-sm text-muted" style="padding:8px 10px;">No PDFs available</div>'}
+          </div>
+        </div>`;
+    }).join('');
+
+  } catch(e) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">⚠️</div><div class="empty-state-title">Failed to load history</div></div>`;
+  }
+}
+
+function toggleHistoryGroup(jobId) {
+  const list = document.getElementById(`hlist-${jobId}`);
+  const chev = document.getElementById(`chevron-${jobId}`);
+  const open = list.style.display !== 'none';
+  list.style.display = open ? 'none' : 'block';
+  chev.textContent = open ? '▼' : '▲';
+}
+
+async function deleteHistory(jobId) {
+  if (!confirm('Delete this batch and all its records?')) return;
+  try {
+    const res = await fetch(`/api/history/${jobId}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error((await res.json()).error);
+    document.getElementById(`hgroup-${jobId}`)?.remove();
+    showToast('Batch deleted', 'success');
+  } catch(e) {
+    showToast(`Delete failed: ${e.message}`, 'error');
+  }
+}
+
+/* =========================================================================
+   TEMPLATES
+   ========================================================================= */
+async function loadTemplates() {
+  const el = document.getElementById('templates-list');
+  el.innerHTML = `<div class="empty-state"><div class="spinner" style="margin:0 auto 14px;"></div><div class="empty-state-title">Loading…</div></div>`;
+  try {
+    const res  = await fetch('/api/templates');
+    const data = await res.json();
+    const list = data.templates || [];
+
+    if (!list.length) {
+      el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-title">No templates yet</div><div class="empty-state-sub">Upload a .docx template to get started.</div></div>`;
+      return;
+    }
+
+    el.innerHTML = list.map(t => {
+      const isActive = state.activeTemplate === t.name;
+      const size     = (t.size / 1024).toFixed(1);
+      const mod      = new Date(t.modified).toLocaleDateString();
+      return `
+        <div class="template-item ${isActive ? 'active-tpl' : ''}" id="tmpl-${slugify(t.name)}">
+          <div class="template-icon">📄</div>
+          <div style="flex:1;min-width:0;">
+            <div class="template-name">${esc(t.name)}</div>
+            <div class="template-meta">${size} KB · Modified ${mod}</div>
+          </div>
+          <div class="flex gap-8">
+            ${isActive
+              ? `<span class="badge badge-info">✓ Active</span>`
+              : `<button class="btn btn-secondary btn-sm" onclick="setActiveTemplate('${esc(t.name)}')">Set Active</button>`}
+            <button class="btn btn-danger btn-sm" onclick="deleteTemplate('${esc(t.name)}')">🗑</button>
+          </div>
+        </div>`;
+    }).join('');
+  } catch(e) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">⚠️</div><div class="empty-state-title">Failed to load templates</div></div>`;
+  }
+}
+
+function setActiveTemplate(name) {
+  state.activeTemplate = name;
+  // Update template select in step 2
+  const sel = document.getElementById('template-select');
+  if ([...sel.options].some(o => o.value === name)) sel.value = name;
+  loadTemplates();
+  showToast(`"${name}" set as active template`, 'success');
+}
+
+async function uploadTemplate(file) {
+  if (!file) return;
+  if (!file.name.toLowerCase().endsWith('.docx')) { showToast('Only .docx files accepted', 'error'); return; }
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const res  = await fetch('/api/templates/upload', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    showToast(`Template "${file.name}" uploaded`, 'success');
+    loadTemplates();
+    populateTemplateDropdown();
+  } catch(e) {
+    showToast(`Upload failed: ${e.message}`, 'error');
+  }
+  document.getElementById('tmpl-upload-input').value = '';
+}
+
+async function deleteTemplate(name) {
+  if (!confirm(`Delete template "${name}"?`)) return;
+  try {
+    const res = await fetch(`/api/templates/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error((await res.json()).error);
+    if (state.activeTemplate === name) {
+      state.activeTemplate = null;
+      document.getElementById('template-select').value = '';
+    }
+    showToast(`Template "${name}" deleted`, 'success');
+    loadTemplates();
+    populateTemplateDropdown();
+  } catch(e) {
+    showToast(`Delete failed: ${e.message}`, 'error');
+  }
+}
+
+/* =========================================================================
+   TOAST
+   ========================================================================= */
+function showToast(msg, type = 'info') {
+  const icons  = { success:'✅', error:'❌', warning:'⚠️', info:'ℹ️' };
+  const titles = { success:'Success', error:'Error', warning:'Warning', info:'Info' };
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.innerHTML = `
+    <div class="toast-icon">${icons[type]}</div>
+    <div>
+      <div class="toast-title">${titles[type]}</div>
+      <div class="toast-msg">${esc(msg)}</div>
+    </div>`;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => {
+    el.style.animation = 'toastOut 0.3s ease forwards';
+    setTimeout(() => el.remove(), 300);
+  }, 3800);
+}
+
+/* =========================================================================
+   UTILS
+   ========================================================================= */
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function slugify(s) {
+  return String(s).replace(/[^a-zA-Z0-9]/g, '_');
+}
+
+/* =========================================================================
+   INIT
+   ========================================================================= */
+(async function init() {
+  await populateTemplateDropdown();
+})();
+</script>
+</body>
+</html>
