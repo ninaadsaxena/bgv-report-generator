@@ -442,6 +442,7 @@
     .badge-warning { background: var(--warning-dim); color: var(--warning); }
     .badge-danger  { background: var(--danger-dim);  color: var(--danger); }
     .badge-info    { background: rgba(79,142,247,0.1); color: var(--accent); }
+    .badge-purple  { background: rgba(168,85,247,0.15); color: #a855f7; }
 
     /* =====================================================================
        TOASTS
@@ -719,21 +720,21 @@
           <div class="card-header">
             <div class="card-title"><div class="card-icon">⚙️</div> Configure</div>
           </div>
-          <div class="grid-2">
-            <div class="form-group">
-              <label>Worksheet</label>
-              <select id="sheet-select" onchange="onSheetChange(this.value)">
-                <option value="">— Select sheet —</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Template</label>
-              <select id="template-select">
-                <option value="">— Default template —</option>
-              </select>
-            </div>
+
+          <!-- Sheet selector -->
+          <div class="form-group">
+            <label>Sheets to process</label>
+            <p class="text-sm text-muted" style="margin-bottom:10px;">Each sheet is auto-matched to its check type. Uncheck sheets you want to skip.</p>
+            <div id="sheet-checklist"></div>
           </div>
-          <div id="sheet-info" class="hidden text-sm text-muted mt-12"></div>
+
+          <div class="form-group mt-16">
+            <label>Template Override <span class="text-muted" style="font-weight:400;font-size:11px;">(optional — uses default per check type if blank)</span></label>
+            <select id="template-select">
+              <option value="">— Use default template per sheet —</option>
+            </select>
+          </div>
+
           <div class="divider"></div>
           <div class="flex gap-8" style="justify-content:flex-end;">
             <button class="btn btn-secondary" onclick="goToStep(1)">← Back</button>
@@ -935,20 +936,13 @@ async function handleExcelUpload(file) {
     if (!res.ok) throw new Error(data.error || 'Upload failed');
     state.uploadData = data;
 
-    // Populate sheet selector
-    const sel = document.getElementById('sheet-select');
-    sel.innerHTML = '';
-    data.sheets.forEach(s => {
-      const opt = document.createElement('option');
-      opt.value = s; opt.textContent = s;
-      sel.appendChild(opt);
-    });
-    state.selectedSheet = data.sheets[0] || null;
-    onSheetChange(state.selectedSheet);
+    // Build sheet checklist
+    buildSheetChecklist(data);
 
     document.getElementById('excel-uploading').classList.add('hidden');
     document.getElementById('btn-next-1').disabled = false;
-    showToast(`"${file.name}" parsed — ${data.sheets.length} sheet(s)`, 'success');
+    const totalRows = data.sheets.reduce((s, sn) => s + (data.data[sn]?.row_count || 0), 0);
+    showToast(`“${file.name}” parsed — ${data.sheets.length} sheet(s), ${totalRows} rows`, 'success');
   } catch(e) {
     document.getElementById('excel-uploading').classList.add('hidden');
     dz.classList.remove('has-file');
@@ -959,17 +953,48 @@ async function handleExcelUpload(file) {
   }
 }
 
-function onSheetChange(name) {
-  state.selectedSheet = name;
-  const d = state.uploadData?.data?.[name];
-  const info = document.getElementById('sheet-info');
-  if (d) {
-    info.textContent = `📊 ${d.row_count} data row(s) found in this sheet`;
-    info.classList.remove('hidden');
-  } else {
-    info.classList.add('hidden');
-  }
+function buildSheetChecklist(data) {
+  const wrap = document.getElementById('sheet-checklist');
+  wrap.innerHTML = '';
+
+  const ctColors = {
+    'address':         'badge-success',
+    'criminal':        'badge-danger',
+    'civil':           'badge-warning',
+    'criminal_civil':  'badge-purple',
+    'id':              'badge-info',
+  };
+
+  data.sheets.forEach(sn => {
+    const d = data.data[sn] || {};
+    const ct     = d.check_type || null;
+    const disp   = d.check_display || 'Unknown check type';
+    const color  = ct ? ctColors[ct] || 'badge-info' : 'badge-danger';
+    const rows   = d.row_count || 0;
+    const warn   = !ct ? `<span title="Sheet name not recognised — will be skipped" style="color:var(--danger)">⚠️ No matching template</span>` : '';
+
+    const item = document.createElement('div');
+    item.className = 'sheet-check-item';
+    item.innerHTML = `
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:10px 12px;
+                     border:1px solid var(--border);border-radius:var(--radius-sm);
+                     background:var(--surface);margin-bottom:8px;">
+        <input type="checkbox" value="${esc(sn)}" ${ct ? 'checked' : ''} style="width:16px;height:16px;flex-shrink:0;">
+        <div style="flex:1;">
+          <div style="font-weight:600;font-size:13px;">${esc(sn)}</div>
+          <div style="font-size:11.5px;color:var(--text-muted);margin-top:2px;">${rows} row${rows !== 1 ? 's' : ''} ${warn}</div>
+        </div>
+        <span class="badge ${color}" style="font-size:10.5px;">${esc(disp)}</span>
+      </label>`;
+    wrap.appendChild(item);
+  });
 }
+
+function getSelectedSheets() {
+  return [...document.querySelectorAll('#sheet-checklist input[type=checkbox]:checked')]
+    .map(el => el.value);
+}
+
 
 /* =========================================================================
    TEMPLATE DROPDOWN (in Step 2)
@@ -996,29 +1021,43 @@ document.getElementById('template-select').addEventListener('change', function()
 });
 
 /* =========================================================================
-   PREVIEW
+   PREVIEW  (shows all selected sheets)
    ========================================================================= */
 function renderPreview() {
-  const sheet = state.selectedSheet || state.uploadData?.sheets?.[0];
-  const d = state.uploadData?.data?.[sheet];
   const wrap = document.getElementById('preview-table');
+  const selectedSheets = getSelectedSheets();
 
-  if (!d || !d.rows.length) {
-    wrap.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-title">No data rows in this sheet</div></div>`;
+  if (!state.uploadData || !selectedSheets.length) {
+    wrap.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📌</div><div class="empty-state-title">No sheets selected</div><div class="empty-state-sub">Go back and check at least one sheet to process.</div></div>`;
     document.getElementById('preview-count').textContent = '0 rows';
     return;
   }
 
-  const { headers, rows, row_count } = d;
-  document.getElementById('preview-count').textContent = `${row_count} row${row_count !== 1 ? 's' : ''}`;
+  let totalRows = 0;
+  let html = '';
 
-  let html = `<table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>`;
-  rows.forEach(r => {
-    html += `<tr>${headers.map(h => `<td title="${esc(r[h]||'')}">${esc(r[h]||'—')}</td>`).join('')}</tr>`;
+  selectedSheets.forEach(sn => {
+    const d = state.uploadData.data?.[sn];
+    if (!d || !d.rows.length) return;
+    const { headers, rows, row_count, check_display } = d;
+    totalRows += row_count;
+    html += `<div style="margin-bottom:20px;">`;
+    html += `<div style="font-size:12px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">${esc(sn)} — ${esc(check_display || '')} (${row_count} row${row_count !== 1 ? 's' : ''})</div>`;
+    html += `<table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>`;
+    rows.forEach(r => {
+      html += `<tr>${headers.map(h => `<td title="${esc(r[h]||'')}">${esc(r[h]||'—')}</td>`).join('')}</tr>`;
+    });
+    html += `</tbody></table>`;
+    if (row_count > 50) html += `<div style="text-align:center;padding:8px;font-size:11px;color:var(--text-muted)">Showing first 50 of ${row_count} rows</div>`;
+    html += `</div>`;
   });
-  html += '</tbody></table>';
-  if (row_count > 50) html += `<div style="text-align:center;padding:10px;font-size:12px;color:var(--text-muted)">Showing first 50 of ${row_count} rows</div>`;
-  wrap.innerHTML = html;
+
+  if (!html) {
+    wrap.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📄</div><div class="empty-state-title">Selected sheets have no data rows</div></div>`;
+  } else {
+    wrap.innerHTML = html;
+  }
+  document.getElementById('preview-count').textContent = `${totalRows} row${totalRows !== 1 ? 's' : ''} across ${selectedSheets.length} sheet${selectedSheets.length !== 1 ? 's' : ''}`;
 }
 
 /* =========================================================================
@@ -1026,6 +1065,9 @@ function renderPreview() {
    ========================================================================= */
 async function startGeneration() {
   if (!state.uploadData) { showToast('No file uploaded', 'error'); return; }
+
+  const selectedSheets = getSelectedSheets();
+  if (!selectedSheets.length) { showToast('Select at least one sheet to process', 'error'); return; }
 
   // Transition to step 4
   for (let i = 1; i <= 3; i++) {
@@ -1045,13 +1087,16 @@ async function startGeneration() {
   document.getElementById('gen-log').innerHTML = '<span class="text-muted">Starting…</span>';
   setProgress(0, 0, 'Sending request…');
 
+  // If only 1 sheet selected, pass it specifically; otherwise pass null (all)
+  const sheetParam = selectedSheets.length === 1 ? selectedSheets[0] : null;
+
   try {
     const res  = await fetch('/api/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         upload_id:     state.uploadData.upload_id,
-        sheet_name:    state.selectedSheet || null,
+        sheet_name:    sheetParam,
         template_name: state.activeTemplate || null,
       }),
     });

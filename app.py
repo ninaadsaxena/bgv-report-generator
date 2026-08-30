@@ -18,16 +18,21 @@ from flask import Flask, request, jsonify, send_file, send_from_directory, Respo
 from flask_cors import CORS
 
 # ---------------------------------------------------------------------------
-# Paths
+# Paths & Serverless Writable Directory Fallbacks
 # ---------------------------------------------------------------------------
 
-BASE_DIR      = Path(__file__).parent.resolve()
-TEMPLATES_DIR = BASE_DIR / "templates"
-STATIC_DIR    = BASE_DIR / "static"
-HISTORY_FILE  = BASE_DIR / "history.json"
+BASE_DIR           = Path(__file__).parent.resolve()
+TEMPLATES_DIR      = BASE_DIR / "templates"
+STATIC_DIR         = BASE_DIR / "static"
+WRITABLE_TMP_DIR   = Path(tempfile.gettempdir()) / "bgv_app_data"
+WRITABLE_TEMPLATES = WRITABLE_TMP_DIR / "templates"
+HISTORY_FILE       = WRITABLE_TMP_DIR / "history.json"
 
-for d in (TEMPLATES_DIR, STATIC_DIR):
-    d.mkdir(parents=True, exist_ok=True)
+for d in (TEMPLATES_DIR, STATIC_DIR, WRITABLE_TMP_DIR, WRITABLE_TEMPLATES):
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
 
 # ---------------------------------------------------------------------------
 # App
@@ -47,22 +52,29 @@ jobs_lock = threading.Lock()
 uploads: dict[str, dict] = {}
 uploads_lock = threading.Lock()
 
+_in_memory_history: list = []
 
 # ---------------------------------------------------------------------------
-# History helpers  (stores PDF bytes as base64 for cross-restart access)
+# History helpers (serverless-resilient)
 # ---------------------------------------------------------------------------
 
 def load_history() -> list:
+    global _in_memory_history
     if HISTORY_FILE.exists():
         try:
             return json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
         except Exception:
-            return []
-    return []
+            return _in_memory_history
+    return _in_memory_history
 
 
 def save_history(history: list):
-    HISTORY_FILE.write_text(json.dumps(history, indent=2, default=str), encoding="utf-8")
+    global _in_memory_history
+    _in_memory_history = history
+    try:
+        HISTORY_FILE.write_text(json.dumps(history, indent=2, default=str), encoding="utf-8")
+    except Exception:
+        pass
 
 
 def append_history(entry: dict):
@@ -100,15 +112,17 @@ def index():
 
 @app.route("/api/templates", methods=["GET"])
 def list_templates():
-    templates = []
-    for f in TEMPLATES_DIR.iterdir():
-        if f.suffix.lower() == ".docx" and f.is_file():
-            templates.append({
-                "name":     f.name,
-                "size":     f.stat().st_size,
-                "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
-            })
-    return jsonify({"templates": sorted(templates, key=lambda x: x["name"])})
+    templates_dict = {}
+    for parent in (TEMPLATES_DIR, WRITABLE_TEMPLATES):
+        if parent.exists():
+            for f in parent.iterdir():
+                if f.suffix.lower() == ".docx" and f.is_file() and not f.name.startswith("~$"):
+                    templates_dict[f.name] = {
+                        "name":     f.name,
+                        "size":     f.stat().st_size,
+                        "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
+                    }
+    return jsonify({"templates": sorted(list(templates_dict.values()), key=lambda x: x["name"])})
 
 
 @app.route("/api/templates/upload", methods=["POST"])
@@ -118,17 +132,38 @@ def upload_template():
     f = request.files["file"]
     if not f.filename.lower().endswith(".docx"):
         return jsonify({"error": "Only .docx files are accepted"}), 400
-    save_path = TEMPLATES_DIR / f.filename
-    f.save(str(save_path))
+    
+    # Try saving to bundled templates dir, fallback to writable /tmp
+    save_path = None
+    for target_dir in (WRITABLE_TEMPLATES, TEMPLATES_DIR):
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            p = target_dir / f.filename
+            f.save(str(p))
+            save_path = p
+            break
+        except Exception:
+            continue
+
+    if save_path is None:
+        return jsonify({"error": "Could not save template file"}), 500
+
     return jsonify({"message": f"Template '{f.filename}' uploaded", "name": f.filename})
 
 
 @app.route("/api/templates/<name>", methods=["DELETE"])
 def delete_template(name):
-    path = TEMPLATES_DIR / name
-    if not path.exists():
-        return jsonify({"error": "Template not found"}), 404
-    path.unlink()
+    deleted = False
+    for target_dir in (WRITABLE_TEMPLATES, TEMPLATES_DIR):
+        p = target_dir / name
+        if p.exists():
+            try:
+                p.unlink()
+                deleted = True
+            except Exception:
+                pass
+    if not deleted:
+        return jsonify({"error": "Template not found or read-only"}), 404
     return jsonify({"message": f"Template '{name}' deleted"})
 
 
@@ -150,16 +185,17 @@ def upload_excel():
     upload_id  = str(uuid.uuid4())
 
     try:
+        from generate_reports import detect_check_type, CHECK_TYPE_REGISTRY
         import openpyxl
         wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
         sheets = wb.sheetnames
         result_sheets = {}
 
-        for sheet_name in sheets:
-            ws = wb[sheet_name]
+        for sn in sheets:
+            ws = wb[sn]
             rows = list(ws.iter_rows(values_only=True))
             if not rows:
-                result_sheets[sheet_name] = {"headers": [], "rows": [], "row_count": 0}
+                result_sheets[sn] = {"headers": [], "rows": [], "row_count": 0, "check_type": None, "check_display": "Unknown"}
                 continue
             headers = [str(h).strip() if h is not None else "" for h in rows[0]]
             data_rows = []
@@ -170,10 +206,17 @@ def upload_excel():
                 for h, v in zip(headers, raw):
                     serialized[h] = v.isoformat() if hasattr(v, "isoformat") else ("" if v is None else str(v))
                 data_rows.append(serialized)
-            result_sheets[sheet_name] = {
-                "headers":   headers,
-                "rows":      data_rows[:50],
-                "row_count": len(data_rows),
+
+            # Auto-detect check type from sheet name
+            ct_key = detect_check_type(sn)
+            ct_display = CHECK_TYPE_REGISTRY[ct_key]["display_name"] if ct_key else "Unknown (sheet name not recognised)"
+
+            result_sheets[sn] = {
+                "headers":      headers,
+                "rows":         data_rows[:50],
+                "row_count":    len(data_rows),
+                "check_type":   ct_key,
+                "check_display": ct_display,
             }
 
         # Store in-memory — base64 so JSON-serialisable if ever needed
@@ -267,6 +310,7 @@ def generate():
                     "filename":   g["filename"],
                     "applicant":  g["applicant"],
                     "check_name": g["check_name"],
+                    "sheet":      g.get("sheet", ""),
                     "data_b64":   base64.b64encode(g["pdf_bytes"]).decode("ascii"),
                     "warnings":   g["warnings"],
                     "row":        g["row"],
