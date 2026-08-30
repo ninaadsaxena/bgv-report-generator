@@ -750,8 +750,6 @@ def detect_check_type(sheet_name):
 # Check-type registry & Smart Fuzzy Template Finder
 # ---------------------------------------------------------------------------
 
-WRITABLE_TEMPLATES = Path(tempfile.gettempdir()) / "bgv_app_data" / "templates"
-
 def _find_template(check_type_key, candidate_names=None):
     """
     Intelligently find a template docx file:
@@ -759,17 +757,16 @@ def _find_template(check_type_key, candidate_names=None):
     2. Fuzzy keyword search across all .docx files in templates/ and root.
     3. Fallback to any valid docx in templates/ if only one exists.
     """
-    search_dirs = (TEMPLATES_DIR, WRITABLE_TEMPLATES, SCRIPT_DIR)
     if candidate_names:
         for name in candidate_names:
-            for parent in search_dirs:
+            for parent in (TEMPLATES_DIR, SCRIPT_DIR):
                 p = parent / name
                 if p.exists() and not p.name.startswith("~$"):
                     return p
 
     # Scan available docx files
     all_docx = []
-    for parent in search_dirs:
+    for parent in (TEMPLATES_DIR, SCRIPT_DIR):
         if parent.exists():
             for f in parent.glob("*.docx"):
                 if not f.name.startswith("~$"):

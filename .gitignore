@@ -1,15 +1,9 @@
+# Python cache
 __pycache__/
 *.pyc
 *.pyo
-*.pyd
-.Python
-env/
-venv/
-.venv/
-build/
-dist/
-*.egg-info/
-.vercel
+
+# Local history & temporary generation data
+history.json
+*.pdf
 ~$*
-uploads/
-*.tmp

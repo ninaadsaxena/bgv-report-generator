@@ -18,21 +18,16 @@ from flask import Flask, request, jsonify, send_file, send_from_directory, Respo
 from flask_cors import CORS
 
 # ---------------------------------------------------------------------------
-# Paths & Serverless Writable Directory Fallbacks
+# Paths
 # ---------------------------------------------------------------------------
 
-BASE_DIR           = Path(__file__).parent.resolve()
-TEMPLATES_DIR      = BASE_DIR / "templates"
-STATIC_DIR         = BASE_DIR / "static"
-WRITABLE_TMP_DIR   = Path(tempfile.gettempdir()) / "bgv_app_data"
-WRITABLE_TEMPLATES = WRITABLE_TMP_DIR / "templates"
-HISTORY_FILE       = WRITABLE_TMP_DIR / "history.json"
+BASE_DIR      = Path(__file__).parent.resolve()
+TEMPLATES_DIR = BASE_DIR / "templates"
+STATIC_DIR    = BASE_DIR / "static"
+HISTORY_FILE  = BASE_DIR / "history.json"
 
-for d in (TEMPLATES_DIR, STATIC_DIR, WRITABLE_TMP_DIR, WRITABLE_TEMPLATES):
-    try:
-        d.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
+for d in (TEMPLATES_DIR, STATIC_DIR):
+    d.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
 # App
@@ -52,29 +47,22 @@ jobs_lock = threading.Lock()
 uploads: dict[str, dict] = {}
 uploads_lock = threading.Lock()
 
-_in_memory_history: list = []
 
 # ---------------------------------------------------------------------------
-# History helpers (serverless-resilient)
+# History helpers  (stores PDF bytes as base64 for cross-restart access)
 # ---------------------------------------------------------------------------
 
 def load_history() -> list:
-    global _in_memory_history
     if HISTORY_FILE.exists():
         try:
             return json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
         except Exception:
-            return _in_memory_history
-    return _in_memory_history
+            return []
+    return []
 
 
 def save_history(history: list):
-    global _in_memory_history
-    _in_memory_history = history
-    try:
-        HISTORY_FILE.write_text(json.dumps(history, indent=2, default=str), encoding="utf-8")
-    except Exception:
-        pass
+    HISTORY_FILE.write_text(json.dumps(history, indent=2, default=str), encoding="utf-8")
 
 
 def append_history(entry: dict):
@@ -112,17 +100,15 @@ def index():
 
 @app.route("/api/templates", methods=["GET"])
 def list_templates():
-    templates_dict = {}
-    for parent in (TEMPLATES_DIR, WRITABLE_TEMPLATES):
-        if parent.exists():
-            for f in parent.iterdir():
-                if f.suffix.lower() == ".docx" and f.is_file() and not f.name.startswith("~$"):
-                    templates_dict[f.name] = {
-                        "name":     f.name,
-                        "size":     f.stat().st_size,
-                        "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
-                    }
-    return jsonify({"templates": sorted(list(templates_dict.values()), key=lambda x: x["name"])})
+    templates = []
+    for f in TEMPLATES_DIR.iterdir():
+        if f.suffix.lower() == ".docx" and f.is_file():
+            templates.append({
+                "name":     f.name,
+                "size":     f.stat().st_size,
+                "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
+            })
+    return jsonify({"templates": sorted(templates, key=lambda x: x["name"])})
 
 
 @app.route("/api/templates/upload", methods=["POST"])
@@ -132,38 +118,17 @@ def upload_template():
     f = request.files["file"]
     if not f.filename.lower().endswith(".docx"):
         return jsonify({"error": "Only .docx files are accepted"}), 400
-    
-    # Try saving to bundled templates dir, fallback to writable /tmp
-    save_path = None
-    for target_dir in (WRITABLE_TEMPLATES, TEMPLATES_DIR):
-        try:
-            target_dir.mkdir(parents=True, exist_ok=True)
-            p = target_dir / f.filename
-            f.save(str(p))
-            save_path = p
-            break
-        except Exception:
-            continue
-
-    if save_path is None:
-        return jsonify({"error": "Could not save template file"}), 500
-
+    save_path = TEMPLATES_DIR / f.filename
+    f.save(str(save_path))
     return jsonify({"message": f"Template '{f.filename}' uploaded", "name": f.filename})
 
 
 @app.route("/api/templates/<name>", methods=["DELETE"])
 def delete_template(name):
-    deleted = False
-    for target_dir in (WRITABLE_TEMPLATES, TEMPLATES_DIR):
-        p = target_dir / name
-        if p.exists():
-            try:
-                p.unlink()
-                deleted = True
-            except Exception:
-                pass
-    if not deleted:
-        return jsonify({"error": "Template not found or read-only"}), 404
+    path = TEMPLATES_DIR / name
+    if not path.exists():
+        return jsonify({"error": "Template not found"}), 404
+    path.unlink()
     return jsonify({"message": f"Template '{name}' deleted"})
 
 
