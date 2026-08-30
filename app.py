@@ -89,9 +89,14 @@ def cleanup_old_uploads():
 # Routes — frontend
 # ---------------------------------------------------------------------------
 
-@app.route("/")
-def index():
-    return send_from_directory(STATIC_DIR, "index.html")
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def index(path):
+    if path != "" and (STATIC_DIR / path).exists() and not (STATIC_DIR / path).is_dir():
+        return send_from_directory(STATIC_DIR, path)
+    if (STATIC_DIR / "index.html").exists():
+        return send_from_directory(STATIC_DIR, "index.html")
+    return "BGV Report Generator is live. static/index.html not found.", 200
 
 
 # ---------------------------------------------------------------------------

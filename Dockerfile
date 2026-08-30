@@ -22,5 +22,5 @@ COPY . .
 ENV PORT=5000
 EXPOSE 5000
 
-# Run with Gunicorn (1 worker to keep RAM well inside the 512MB free tier)
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--timeout", "300", "app:app"]
+# Run with Gunicorn (binds dynamically to Render's $PORT)
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5000} --workers 1 --timeout 300 app:app"]
