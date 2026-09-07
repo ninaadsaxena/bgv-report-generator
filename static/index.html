@@ -434,6 +434,34 @@
     tr:last-child td { border-bottom: none; }
     tr:hover td     { background: rgba(128,128,128,0.03); color: var(--text-primary); }
 
+    tr.row-clickable { cursor: pointer; user-select: none; }
+    tr.row-selected td {
+      background: rgba(79, 142, 247, 0.08) !important;
+      color: var(--text-primary) !important;
+    }
+
+    .row-checkbox {
+      width: 16px; height: 16px;
+      cursor: pointer;
+      accent-color: var(--accent);
+      vertical-align: middle;
+    }
+
+    .table-sheet-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .selection-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
     /* =====================================================================
        BADGES
        ===================================================================== */
@@ -746,15 +774,20 @@
       <!-- Step 3 -->
       <div id="step-panel-3" class="hidden">
         <div class="card">
-          <div class="card-header">
-            <div class="card-title"><div class="card-icon">👁️</div> Data Preview</div>
-            <span id="preview-count" class="badge badge-info"></span>
+          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+            <div class="card-title"><div class="card-icon">👁️</div> Data Preview &amp; Selection</div>
+            <div class="flex gap-8" style="align-items:center;">
+              <span id="preview-count" class="badge badge-info"></span>
+              <button class="btn btn-secondary btn-sm" onclick="selectAllCandidates(true)">Select All</button>
+              <button class="btn btn-secondary btn-sm" onclick="selectAllCandidates(false)">Deselect All</button>
+            </div>
           </div>
-          <div class="table-wrap" id="preview-table"></div>
+          <p class="text-sm text-muted" style="margin-bottom:14px;">Select the candidates/records you want to generate reports for using the checkboxes below.</p>
+          <div id="preview-table"></div>
           <div class="divider"></div>
           <div class="flex gap-8" style="justify-content:flex-end;">
             <button class="btn btn-secondary" onclick="goToStep(2)">← Back</button>
-            <button class="btn btn-success btn-lg" onclick="startGeneration()">⚡ Generate PDFs</button>
+            <button class="btn btn-success btn-lg" id="btn-start-gen" onclick="startGeneration()">⚡ Generate PDFs</button>
           </div>
         </div>
       </div>
@@ -846,6 +879,7 @@ const state = {
   currentTab:    'generate',
   uploadData:    null,
   selectedSheet: null,
+  selectedRows:  {},     // { [sheetName]: Set([1, 2, ...]) }
   activeTemplate: null,   // currently selected template name
   currentJobId:  null,
   pollTimer:     null,
@@ -936,6 +970,13 @@ async function handleExcelUpload(file) {
     if (!res.ok) throw new Error(data.error || 'Upload failed');
     state.uploadData = data;
 
+    // Initialize selected rows for all sheets
+    state.selectedRows = {};
+    data.sheets.forEach(sn => {
+      const rows = data.data[sn]?.rows || [];
+      state.selectedRows[sn] = new Set(rows.map(r => r._row_index || 1));
+    });
+
     // Build sheet checklist
     buildSheetChecklist(data);
 
@@ -1021,7 +1062,7 @@ document.getElementById('template-select').addEventListener('change', function()
 });
 
 /* =========================================================================
-   PREVIEW  (shows all selected sheets)
+   PREVIEW & CANDIDATE SELECTION (Step 3)
    ========================================================================= */
 function renderPreview() {
   const wrap = document.getElementById('preview-table');
@@ -1029,26 +1070,76 @@ function renderPreview() {
 
   if (!state.uploadData || !selectedSheets.length) {
     wrap.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📌</div><div class="empty-state-title">No sheets selected</div><div class="empty-state-sub">Go back and check at least one sheet to process.</div></div>`;
-    document.getElementById('preview-count').textContent = '0 rows';
+    document.getElementById('preview-count').textContent = '0 selected';
+    const genBtn = document.getElementById('btn-start-gen');
+    if (genBtn) genBtn.disabled = true;
     return;
   }
 
-  let totalRows = 0;
+  const ctColors = {
+    'address':         'badge-success',
+    'criminal':        'badge-danger',
+    'civil':           'badge-warning',
+    'criminal_civil':  'badge-purple',
+    'id':              'badge-info',
+  };
+
   let html = '';
 
   selectedSheets.forEach(sn => {
     const d = state.uploadData.data?.[sn];
     if (!d || !d.rows.length) return;
-    const { headers, rows, row_count, check_display } = d;
-    totalRows += row_count;
-    html += `<div style="margin-bottom:20px;">`;
-    html += `<div style="font-size:12px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">${esc(sn)} — ${esc(check_display || '')} (${row_count} row${row_count !== 1 ? 's' : ''})</div>`;
-    html += `<table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>`;
-    rows.forEach(r => {
-      html += `<tr>${headers.map(h => `<td title="${esc(r[h]||'')}">${esc(r[h]||'—')}</td>`).join('')}</tr>`;
+    const { headers, rows, check_type, check_display } = d;
+    const color = check_type ? ctColors[check_type] || 'badge-info' : 'badge-danger';
+    const slug = slugify(sn);
+
+    // Ensure selectedRows set exists for this sheet
+    if (!state.selectedRows[sn]) {
+      state.selectedRows[sn] = new Set(rows.map(r => r._row_index || 1));
+    }
+    const selectedSet = state.selectedRows[sn];
+    const allChecked = rows.length > 0 && selectedSet.size === rows.length;
+
+    html += `<div style="margin-bottom:24px;">`;
+    html += `  <div class="table-sheet-header">`;
+    html += `    <div style="display:flex;align-items:center;gap:8px;">`;
+    html += `      <span style="font-size:13px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.05em;">${esc(sn)}</span>`;
+    html += `      <span class="badge ${color}" style="font-size:11px;">${esc(check_display || '')}</span>`;
+    html += `    </div>`;
+    html += `    <div class="selection-controls">`;
+    html += `      <span id="sheet-sel-count-${slug}" class="badge ${selectedSet.size > 0 ? 'badge-info' : 'badge-warning'}">${selectedSet.size} of ${rows.length} selected</span>`;
+    html += `      <button class="btn btn-secondary btn-sm" onclick="toggleSheetRows('${esc(sn)}', true)">All</button>`;
+    html += `      <button class="btn btn-secondary btn-sm" onclick="toggleSheetRows('${esc(sn)}', false)">Clear</button>`;
+    html += `    </div>`;
+    html += `  </div>`;
+    html += `  <div class="table-wrap">`;
+    html += `    <table>`;
+    html += `      <thead>`;
+    html += `        <tr>`;
+    html += `          <th style="width:40px;text-align:center;">`;
+    html += `            <input type="checkbox" id="master-cb-${slug}" class="row-checkbox" ${allChecked ? 'checked' : ''} onchange="toggleSheetRows('${esc(sn)}', this.checked)" title="Select or deselect all in ${esc(sn)}">`;
+    html += `          </th>`;
+    headers.forEach(h => {
+      html += `        <th>${esc(h)}</th>`;
     });
-    html += `</tbody></table>`;
-    if (row_count > 50) html += `<div style="text-align:center;padding:8px;font-size:11px;color:var(--text-muted)">Showing first 50 of ${row_count} rows</div>`;
+    html += `        </tr>`;
+    html += `      </thead>`;
+    html += `      <tbody>`;
+    rows.forEach(r => {
+      const rowIdx = r._row_index || 1;
+      const isSel = selectedSet.has(rowIdx);
+      html += `        <tr id="row-${slug}-${rowIdx}" class="row-clickable ${isSel ? 'row-selected' : ''}" onclick="toggleRowSelection('${esc(sn)}', ${rowIdx}, event)">`;
+      html += `          <td style="text-align:center;" onclick="event.stopPropagation()">`;
+      html += `            <input type="checkbox" id="cb-${slug}-${rowIdx}" class="row-checkbox" ${isSel ? 'checked' : ''} onchange="toggleRowSelection('${esc(sn)}', ${rowIdx}, event)">`;
+      html += `          </td>`;
+      headers.forEach(h => {
+        html += `          <td title="${esc(r[h]||'')}">${esc(r[h]||'—')}</td>`;
+      });
+      html += `        </tr>`;
+    });
+    html += `      </tbody>`;
+    html += `    </table>`;
+    html += `  </div>`;
     html += `</div>`;
   });
 
@@ -1057,7 +1148,99 @@ function renderPreview() {
   } else {
     wrap.innerHTML = html;
   }
-  document.getElementById('preview-count').textContent = `${totalRows} row${totalRows !== 1 ? 's' : ''} across ${selectedSheets.length} sheet${selectedSheets.length !== 1 ? 's' : ''}`;
+  updatePreviewSelectionUI();
+}
+
+function toggleRowSelection(sheetName, rowIndex, event) {
+  if (event) event.stopPropagation();
+  if (!state.selectedRows[sheetName]) state.selectedRows[sheetName] = new Set();
+  const set = state.selectedRows[sheetName];
+  if (set.has(rowIndex)) {
+    set.delete(rowIndex);
+  } else {
+    set.add(rowIndex);
+  }
+  updatePreviewSelectionUI();
+}
+
+function toggleSheetRows(sheetName, selectAll) {
+  const d = state.uploadData?.data?.[sheetName];
+  if (!d) return;
+  if (!state.selectedRows[sheetName]) state.selectedRows[sheetName] = new Set();
+  if (selectAll) {
+    d.rows.forEach(r => state.selectedRows[sheetName].add(r._row_index || 1));
+  } else {
+    state.selectedRows[sheetName].clear();
+  }
+  updatePreviewSelectionUI();
+}
+
+function selectAllCandidates(selectAll) {
+  const selectedSheets = getSelectedSheets();
+  selectedSheets.forEach(sn => {
+    const d = state.uploadData?.data?.[sn];
+    if (!d) return;
+    if (!state.selectedRows[sn]) state.selectedRows[sn] = new Set();
+    if (selectAll) {
+      d.rows.forEach(r => state.selectedRows[sn].add(r._row_index || 1));
+    } else {
+      state.selectedRows[sn].clear();
+    }
+  });
+  updatePreviewSelectionUI();
+}
+
+function updatePreviewSelectionUI() {
+  const selectedSheets = getSelectedSheets();
+  let totalSelected = 0;
+  let totalAvailable = 0;
+
+  selectedSheets.forEach(sn => {
+    const d = state.uploadData?.data?.[sn];
+    if (!d) return;
+    const slug = slugify(sn);
+    const selectedSet = state.selectedRows[sn] || new Set();
+    totalAvailable += d.row_count || d.rows.length;
+    totalSelected += selectedSet.size;
+
+    // Update sheet master checkbox
+    const masterCb = document.getElementById(`master-cb-${slug}`);
+    if (masterCb) {
+      masterCb.checked = d.rows.length > 0 && selectedSet.size === d.rows.length;
+      masterCb.indeterminate = selectedSet.size > 0 && selectedSet.size < d.rows.length;
+    }
+
+    // Update sheet count badge
+    const badge = document.getElementById(`sheet-sel-count-${slug}`);
+    if (badge) {
+      badge.textContent = `${selectedSet.size} of ${d.rows.length} selected`;
+      badge.className = selectedSet.size > 0 ? 'badge badge-info' : 'badge badge-warning';
+    }
+
+    // Update row styles and checkboxes
+    d.rows.forEach(r => {
+      const rowIdx = r._row_index || 1;
+      const isSel = selectedSet.has(rowIdx);
+      const rowEl = document.getElementById(`row-${slug}-${rowIdx}`);
+      const cbEl  = document.getElementById(`cb-${slug}-${rowIdx}`);
+      if (rowEl) rowEl.classList.toggle('row-selected', isSel);
+      if (cbEl) cbEl.checked = isSel;
+    });
+  });
+
+  const previewCountEl = document.getElementById('preview-count');
+  if (previewCountEl) {
+    previewCountEl.textContent = `${totalSelected} of ${totalAvailable} selected`;
+    previewCountEl.className = totalSelected > 0 ? 'badge badge-info' : 'badge badge-danger';
+  }
+
+  const genBtn = document.getElementById('btn-start-gen');
+  if (genBtn) {
+    genBtn.disabled = totalSelected === 0;
+    genBtn.textContent = totalSelected > 0
+      ? `⚡ Generate ${totalSelected} PDF${totalSelected !== 1 ? 's' : ''}`
+      : '⚡ Generate PDFs (Select at least 1)';
+  }
 }
 
 /* =========================================================================
@@ -1068,6 +1251,22 @@ async function startGeneration() {
 
   const selectedSheets = getSelectedSheets();
   if (!selectedSheets.length) { showToast('Select at least one sheet to process', 'error'); return; }
+
+  // Build selected_rows mapping
+  const selectedRowsPayload = {};
+  let totalSelected = 0;
+  selectedSheets.forEach(sn => {
+    const set = state.selectedRows[sn] || new Set();
+    if (set.size > 0) {
+      selectedRowsPayload[sn] = Array.from(set);
+      totalSelected += set.size;
+    }
+  });
+
+  if (totalSelected === 0) {
+    showToast('Please select at least one person using the checkboxes', 'warning');
+    return;
+  }
 
   // Transition to step 4
   for (let i = 1; i <= 3; i++) {
@@ -1098,6 +1297,7 @@ async function startGeneration() {
         upload_id:     state.uploadData.upload_id,
         sheet_name:    sheetParam,
         template_name: state.activeTemplate || null,
+        selected_rows: selectedRowsPayload,
       }),
     });
     const data = await res.json();
@@ -1237,6 +1437,7 @@ function triggerDownload(blob, filename) {
 function resetWorkflow() {
   state.uploadData = null;
   state.selectedSheet = null;
+  state.selectedRows = {};
   state.currentJobId = null;
   state.activeTemplate = null;
   clearTimeout(state.pollTimer);

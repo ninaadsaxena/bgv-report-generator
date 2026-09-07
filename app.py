@@ -169,10 +169,10 @@ def upload_excel():
                 continue
             headers = [str(h).strip() if h is not None else "" for h in rows[0]]
             data_rows = []
-            for raw in rows[1:]:
+            for row_idx, raw in enumerate(rows[1:], start=1):
                 if raw is None or all(v is None for v in raw):
                     continue
-                serialized = {}
+                serialized = {"_row_index": row_idx}
                 for h, v in zip(headers, raw):
                     serialized[h] = v.isoformat() if hasattr(v, "isoformat") else ("" if v is None else str(v))
                 data_rows.append(serialized)
@@ -182,10 +182,10 @@ def upload_excel():
             ct_display = CHECK_TYPE_REGISTRY[ct_key]["display_name"] if ct_key else "Unknown (sheet name not recognised)"
 
             result_sheets[sn] = {
-                "headers":      headers,
-                "rows":         data_rows[:50],
-                "row_count":    len(data_rows),
-                "check_type":   ct_key,
+                "headers":       headers,
+                "rows":          data_rows,
+                "row_count":     len(data_rows),
+                "check_type":    ct_key,
                 "check_display": ct_display,
             }
 
@@ -219,6 +219,7 @@ def generate():
     upload_id     = data.get("upload_id")
     sheet_name    = data.get("sheet_name") or None
     template_name = data.get("template_name") or None
+    selected_rows = data.get("selected_rows") or None
 
     with uploads_lock:
         upload_entry = uploads.get(upload_id)
@@ -248,6 +249,21 @@ def generate():
             "original_filename": original_filename,
         }
 
+    def safe_unlink(p):
+        import gc, time
+        try:
+            gc.collect()
+            path = Path(p)
+            for _ in range(5):
+                try:
+                    if path.exists():
+                        path.unlink()
+                    return
+                except OSError:
+                    time.sleep(0.1)
+        except Exception:
+            pass
+
     def run_job():
         from generate_reports import generate_all
 
@@ -269,9 +285,10 @@ def generate():
                     sheet_name=sheet_name,
                     template_override=template_override,
                     progress_callback=on_progress,
+                    selected_rows=selected_rows,
                 )
             finally:
-                tmp_xlsx.unlink(missing_ok=True)   # delete immediately after use
+                safe_unlink(tmp_xlsx)   # safely delete temporary file without Windows file-lock crashes
 
             # Convert PDF bytes to base64 for storage
             pdfs_meta = []

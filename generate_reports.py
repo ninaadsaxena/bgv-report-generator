@@ -633,39 +633,50 @@ def read_sheet(xlsx_path, sheet_name=None):
     """
     Read an Excel sheet and return (headers, data_rows).
     data_rows is a list of dicts keyed by header name.
+    Each dict includes a '_row_index' key matching the 1-based row position
+    used by app.py's upload handler (counts every row including blanks,
+    skips blank rows — so indices may not be contiguous if blanks exist).
     """
     wb = openpyxl.load_workbook(xlsx_path, data_only=True)
-    ws = wb[sheet_name] if sheet_name else wb.active
-    rows = list(ws.iter_rows(values_only=True))
-    if not rows:
-        raise ValueError(f"Sheet '{ws.title}' is empty.")
-    headers = [str(h).strip() if h is not None else "" for h in rows[0]]
-    data_rows = []
-    for raw in rows[1:]:
-        if raw is None or all(v is None for v in raw):
-            continue
-        data_rows.append(dict(zip(headers, raw)))
-    return headers, data_rows
+    try:
+        ws = wb[sheet_name] if sheet_name else wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows:
+            raise ValueError(f"Sheet '{ws.title}' is empty.")
+        headers = [str(h).strip() if h is not None else "" for h in rows[0]]
+        data_rows = []
+        for row_idx, raw in enumerate(rows[1:], start=1):
+            if raw is None or all(v is None for v in raw):
+                continue
+            d = dict(zip(headers, raw))
+            d["_row_index"] = row_idx   # mirrors app.py upload logic exactly
+            data_rows.append(d)
+        return headers, data_rows
+    finally:
+        wb.close()
 
 
 def read_all_sheets(xlsx_path):
     """Return {sheet_name: (headers, data_rows)} for all sheets."""
     wb = openpyxl.load_workbook(xlsx_path, data_only=True)
-    result = {}
-    for name in wb.sheetnames:
-        ws = wb[name]
-        rows = list(ws.iter_rows(values_only=True))
-        if not rows:
-            result[name] = ([], [])
-            continue
-        headers = [str(h).strip() if h is not None else "" for h in rows[0]]
-        data_rows = []
-        for raw in rows[1:]:
-            if raw is None or all(v is None for v in raw):
+    try:
+        result = {}
+        for name in wb.sheetnames:
+            ws = wb[name]
+            rows = list(ws.iter_rows(values_only=True))
+            if not rows:
+                result[name] = ([], [])
                 continue
-            data_rows.append(dict(zip(headers, raw)))
-        result[name] = (headers, data_rows)
-    return result
+            headers = [str(h).strip() if h is not None else "" for h in rows[0]]
+            data_rows = []
+            for raw in rows[1:]:
+                if raw is None or all(v is None for v in raw):
+                    continue
+                data_rows.append(dict(zip(headers, raw)))
+            result[name] = (headers, data_rows)
+        return result
+    finally:
+        wb.close()
 
 
 # ---------------------------------------------------------------------------
@@ -915,9 +926,10 @@ def generate_one(row, check_type_key, template_override, work_dir, warnings, row
 # ---------------------------------------------------------------------------
 
 def generate_all(xlsx_path, sheet_name=None, template_override=None,
-                 progress_callback=None):
+                 progress_callback=None, selected_rows=None):
     """
     Generate one PDF per data row across all sheets (or a single named sheet).
+    Optionally filters by selected_rows (dict of sheet_name -> list of 1-based row indices).
 
     Returns:
       {
@@ -933,7 +945,10 @@ def generate_all(xlsx_path, sheet_name=None, template_override=None,
     work_dir = Path(tempfile.mkdtemp(prefix="bgv_work_"))
     try:
         wb = openpyxl.load_workbook(xlsx_path, data_only=True)
-        sheet_names = [sheet_name] if sheet_name else wb.sheetnames
+        try:
+            sheet_names = [sheet_name] if sheet_name else list(wb.sheetnames)
+        finally:
+            wb.close()
 
         all_sheet_data = {}
         total_rows = 0
@@ -941,7 +956,16 @@ def generate_all(xlsx_path, sheet_name=None, template_override=None,
             try:
                 _, rows = read_sheet(xlsx_path, sn)
                 all_sheet_data[sn] = rows
-                total_rows += len(rows)
+                if selected_rows is not None:
+                    raw_sel = selected_rows.get(sn) if isinstance(selected_rows, dict) else selected_rows
+                    if raw_sel is not None:
+                        sel_set = set(int(x) for x in raw_sel)
+                        # Count only rows whose _row_index is in the selection
+                        total_rows += sum(1 for r in rows if r.get("_row_index", -1) in sel_set)
+                    else:
+                        total_rows += len(rows)
+                else:
+                    total_rows += len(rows)
             except Exception as e:
                 all_sheet_data[sn] = []
 
@@ -973,7 +997,18 @@ def generate_all(xlsx_path, sheet_name=None, template_override=None,
                     progress_callback(done_count, total_rows, f"Skipped sheet '{sn}': unknown type")
                 continue
 
+            sn_sel = None
+            if selected_rows is not None:
+                raw_sel = selected_rows.get(sn) if isinstance(selected_rows, dict) else selected_rows
+                if raw_sel is not None:
+                    sn_sel = set(int(x) for x in raw_sel)
+
             for i, row in enumerate(rows, start=1):
+                # Use _row_index stored by read_sheet (matches app.py's upload numbering)
+                # so filtering works correctly even when the Excel has blank rows.
+                row_excel_idx = row.get("_row_index", i)
+                if sn_sel is not None and row_excel_idx not in sn_sel:
+                    continue
                 row_warnings = []
                 candidate = _get_candidate_name(row)
                 s_no = row.get("S.No.", i)
