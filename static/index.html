@@ -1235,15 +1235,41 @@ function triggerDownload(blob, filename) {
 }
 
 function resetWorkflow() {
-  state.uploadData = null; state.selectedSheet = null; state.currentJobId = null;
+  state.uploadData = null;
+  state.selectedSheet = null;
+  state.currentJobId = null;
+  state.activeTemplate = null;
   clearTimeout(state.pollTimer);
+
+  // Reset dropzone
   dz.classList.remove('has-file');
   document.getElementById('dz-icon').textContent  = '📂';
   document.getElementById('dz-title').textContent = 'Drop your Excel file here';
   document.getElementById('dz-sub').textContent   = 'or click to browse · .xlsx & .xls supported';
   document.getElementById('excel-input').value    = '';
+
+  // Reset checklist, preview & template selection
+  const checklist = document.getElementById('sheet-checklist');
+  if (checklist) checklist.innerHTML = '';
+  const previewTable = document.getElementById('preview-table');
+  if (previewTable) previewTable.innerHTML = '';
+  const previewCount = document.getElementById('preview-count');
+  if (previewCount) previewCount.textContent = '';
+  const templateSelect = document.getElementById('template-select');
+  if (templateSelect) templateSelect.value = '';
+
+  // Reset generation progress & results
+  document.getElementById('gen-results').classList.add('hidden');
   document.getElementById('gen-errors-section').classList.add('hidden');
-  document.getElementById('sheet-info').classList.add('hidden');
+  const genPdfList = document.getElementById('gen-pdf-list');
+  if (genPdfList) genPdfList.innerHTML = '';
+  const resultStats = document.getElementById('result-stats');
+  if (resultStats) resultStats.innerHTML = '';
+  const genLog = document.getElementById('gen-log');
+  if (genLog) genLog.innerHTML = '<span class="text-muted">Starting…</span>';
+  setProgress(0, 0, 'Initializing…');
+
+  // Reset stepper & panels back to step 1
   for (let i = 1; i <= 4; i++) {
     document.getElementById(`step-panel-${i}`).classList.add('hidden');
     document.getElementById(`step-${i}`).classList.remove('active','done');
