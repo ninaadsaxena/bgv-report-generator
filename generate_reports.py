@@ -156,7 +156,9 @@ CANONICAL_CONCEPTS = {
     "ID_TYPE": {
         "aliases": [
             "id type", "identity type", "document type", "doc type", "id document",
-            "card type", "type of id", "gov id type", "identification type"
+            "card type", "type of id", "gov id type", "identification type",
+            "nid type", "national id type", "id card type", "id category",
+            "document category", "verification document type"
         ],
         "default": "Government ID",
     },
@@ -720,6 +722,20 @@ def build_criminal_civil_fields(row, warnings=None):
     return build_criminal_fields(row, warnings)
 
 
+def build_id_fields(row, warnings=None):
+    """Backward compatibility helper for ID / Identity Verification checks."""
+    d_map, c_map = build_row_context(row)
+    return {
+        "Candidate Name": c_map.get("NAME", "Unknown"),
+        "Date of Birth":  fmt_date(c_map.get("DOB")),
+        "NID Type":       clean(c_map.get("ID_TYPE", "Government ID")),
+        "ID Number":      safe_int_str(c_map.get("ID_NUMBER")),
+        "Country":        clean(c_map.get("COUNTRY", "")),
+        "Check ID":       safe_int_str(c_map.get("CHECK_ID")),
+        "Closure date":   fmt_date(c_map.get("CLOSURE_DATE")),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Sheet-name → check type detection
 # ---------------------------------------------------------------------------
@@ -749,9 +765,12 @@ def detect_check_type(sheet_name):
     if any(x in name for x in ("criminal", "crim", "crime", "police", "court")):
         return "criminal"
 
-    # 5. ID / Identity verification
-    if any(x in name for x in ("id", "identity", "national id", "passport", "aadhar", "aadhaar",
-                                "ssn", "pan", "dl", "driving", "voter", "gov id", "identification")):
+    # 5. ID / Identity verification — extended keyword set
+    if any(x in name for x in ("id verification", "identity verification", "id check",
+                                "id & verification", "nid", "national id", "passport",
+                                "aadhar", "aadhaar", "ssn", "pan", "driving licence",
+                                "driving license", "voter", "gov id", "identification")) \
+       or (name.strip() in ("id", "identity") or name.startswith("id ")):
         return "id"
 
     return None
@@ -875,7 +894,7 @@ CHECK_TYPE_REGISTRY = {
                                "ID.docx",
                                "National_ID_format.docx",
                            ]),
-        "build_fields":    build_address_fields,
+        "build_fields":    build_id_fields,
         "display_name":    "Identity Verification",
     },
 }
